@@ -3,10 +3,10 @@ import os
 from dbt.config import RuntimeConfig
 import dbt.adapters.factory
 
-import dbt.loader
+# import dbt.loader
 import dbt.ui
 from dbt.logger import GLOBAL_LOGGER as logger
-from dbt.task.generate import unflatten
+# from dbt.task.generate import unflatten
 from jinja2 import Template
 
 
@@ -32,7 +32,8 @@ class BootstrapTask:
         self.config = RuntimeConfig.from_args(args)
 
     def _get_manifest(self):
-        manifest = dbt.loader.GraphLoader.load_all(self.config)
+        manifest = ManifestLoader.load_all(self.config)
+        print(manifest)
         return manifest
 
     def render_relations(self, models):
@@ -87,13 +88,10 @@ class BootstrapTask:
         adapter = dbt.adapters.factory.get_adapter(self.config)
         all_relations = adapter.get_catalog(manifest)
 
-        selected_relations = all_relations.where(
-            lambda row: row["table_schema"] in schemas
-        )
+        selected_relations = all_relations.where(lambda row: row["table_schema"] in schemas)
 
         zipped_relations = [
-            dict(zip(selected_relations.column_names, row))
-            for row in selected_relations
+            dict(zip(selected_relations.column_names, row)) for row in selected_relations
         ]
 
         relations_to_design = unflatten(zipped_relations)
@@ -126,9 +124,7 @@ class BootstrapTask:
                 if not single_file:
                     if not write_files:
                         logger.info("-" * 20)
-                        logger.info(
-                            "Design for relation: {}.{}".format(schema, relation)
-                        )
+                        logger.info("Design for relation: {}.{}".format(schema, relation))
                         logger.info("-" * 20)
                         yml = self.render_relations([relation_dict])
                         self.print_relation(yml)

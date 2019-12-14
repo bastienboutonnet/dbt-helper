@@ -1,10 +1,93 @@
 import networkx as nx
-import dbt.loader
 from dbt.config import RuntimeConfig
 from dbt.logger import GLOBAL_LOGGER as logger
+from core.find import FindTask
+import dbt.ui
+from pathlib import Path
+import matplotlib.pyplot as plt
+import random
+
+GRAPH_FILE = "graph.gpickle"
 
 
-class ShowDependenciesTask:
+def hierarchy_pos(G, root=None, width=1.0, vert_gap=0.2, vert_loc=0, xcenter=0.5):
+
+    """
+    From Joel's answer at https://stackoverflow.com/a/29597209/2966723.
+    Licensed under Creative Commons Attribution-Share Alike
+
+    If the graph is a tree this will return the positions to plot this in a
+    hierarchical layout.
+
+    G: the graph (must be a tree)
+
+    root: the root node of current branch
+    - if the tree is directed and this is not given,
+      the root will be found and used
+    - if the tree is directed and this is given, then
+      the positions will be just for the descendants of this node.
+    - if the tree is undirected and not given,
+      then a random choice will be used.
+
+    width: horizontal space allocated for this branch - avoids overlap with other branches
+
+    vert_gap: gap between levels of hierarchy
+
+    vert_loc: vertical location of root
+
+    xcenter: horizontal location of root
+    """
+    if not nx.is_tree(G):
+        raise TypeError("cannot use hierarchy_pos on a graph that is not a tree")
+
+    if root is None:
+        if isinstance(G, nx.DiGraph):
+            root = next(
+                iter(nx.topological_sort(G))
+            )  # allows back compatibility with nx version 1.11
+        else:
+            root = random.choice(list(G.nodes))
+
+    def _hierarchy_pos(
+        G, root, width=1.0, vert_gap=0.2, vert_loc=0, xcenter=0.5, pos=None, parent=None
+    ):
+        """
+        see hierarchy_pos docstring for most arguments
+
+        pos: a dict saying where all nodes go if they have been assigned
+        parent: parent of this branch. - only affects it if non-directed
+
+        """
+
+        if pos is None:
+            pos = {root: (xcenter, vert_loc)}
+        else:
+            pos[root] = (xcenter, vert_loc)
+        children = list(G.neighbors(root))
+        if not isinstance(G, nx.DiGraph) and parent is not None:
+            children.remove(parent)
+        if len(children) != 0:
+            dx = width / len(children)
+            nextx = xcenter - width / 2 - dx / 2
+            for child in children:
+                nextx += dx
+                pos = _hierarchy_pos(
+                    G,
+                    child,
+                    width=dx,
+                    vert_gap=vert_gap,
+                    vert_loc=vert_loc - vert_gap,
+                    xcenter=nextx,
+                    pos=pos,
+                    parent=root,
+                )
+        print(pos)
+        return pos
+
+    return _hierarchy_pos(G, root, width, vert_gap, vert_loc, xcenter)
+
+
+class ShowDependenciesTask(FindTask):
     def __init__(self, args):
         self.args = args
         if self.args.command == "show_upstream":
@@ -15,11 +98,13 @@ class ShowDependenciesTask:
             raise
         self.config = RuntimeConfig.from_args(args)
         self.model_path = self.config.source_paths[0]
-        self.manifest = self._get_manifest()
+        self.target_path = self.config.target_path
+        self.manifest = self._get_manifest()  # Inherited from FindTask
 
-    def _get_manifest(self):
-        manifest = dbt.loader.GraphLoader.load_all(self.config)
-        return manifest
+    def _get_graph(self):
+        graph_path = Path(self.target_path) / GRAPH_FILE
+        graph = nx.read_gpickle(graph_path)
+        return graph
 
     # this traverses an arbitrary tree (parents or children) to get all ancestors or descendants
     def traverse_tree(self, node, d_tree, been_done=set()):
@@ -27,9 +112,7 @@ class ShowDependenciesTask:
         for key in d_tree.get(node, set()):  # 2nd step relatives
             if key not in been_done:
                 been_done.add(key)  # to break any circular references
-                tree_outputs = tree_outputs.union(
-                    self.traverse_tree(key, d_tree, been_done)
-                )
+                tree_outputs = tree_outputs.union(self.traverse_tree(key, d_tree, been_done))
         return tree_outputs
 
     # this reverses a parent tree to a child tree
@@ -54,9 +137,7 @@ class ShowDependenciesTask:
 
         # build descendant dict
         for node in child_dict:
-            downstream_dict[node] = self.traverse_tree(
-                node, child_dict, been_done=set()
-            )
+            downstream_dict[node] = self.traverse_tree(node, child_dict, been_done=set())
 
         # build ancestor dict
         for node in parent_dict:
@@ -72,8 +153,8 @@ class ShowDependenciesTask:
         return node_set
 
     def dereference_model_name(self, model_name):
-        for name, node in self.manifest.nodes.items():
-            if node.name == model_name:
+        for name, node in self.manifest["nodes"].items():
+            if node["name"] == model_name:
                 return name
 
     def get_node_info(self):
@@ -81,16 +162,16 @@ class ShowDependenciesTask:
         node_info_dict = {}  # intended to store direct node type
         parent_dict = {}  # intended to store parent data
 
-        for name, node in self.manifest.nodes.items():
+        for name, node in self.manifest["nodes"].items():
             d = {}
             d["name"] = name
-            if node['resource_type'] == 'source':
-                mat = 'source'
-                schema = node['schema']
-                alias = node['name']
+            if node["resource_type"] == "source":
+                mat = "source"
+                schema = node["schema"]
+                alias = node["name"]
                 parents = []
             else:
-                mat = node.config["materialized"]
+                mat = node["config"]["materialized"]
                 if len(node["fqn"]) == 3:
                     schema = node["fqn"][1]
                 else:
@@ -123,7 +204,11 @@ class ShowDependenciesTask:
         layers = sorted(keylist, reverse=rev)
         print("-" * 80)
         for layer in layers:
-            print(" | ".join(viz_dict[layer]).center(80))
+            print(viz_dict[layer][0].center(80))
+            if len(viz_dict[layer]) > 0:
+                print("^".center(80))
+                flat_list = [item for sublist in viz_dict[layer][1:] for item in sublist]
+                print(" | ".join(flat_list).center(80))
             print("-" * 80)
 
     def subset_dict(self, d, nodes):
@@ -138,7 +223,12 @@ class ShowDependenciesTask:
         return out_d
 
     def pretty_node_name(self, name):
+        # print(self.node_info_dict[name]["alias"])
         return self.node_info_dict[name]["alias"]
+
+    @staticmethod
+    def plot_graph(graph) -> None:
+        nx.draw(graph, with_labels=True)
 
     def run(self, args):
         parent_dict, self.node_info_dict = self.get_node_info()
@@ -162,6 +252,7 @@ class ShowDependenciesTask:
         viz_dict = {}
 
         def update_viz_dict(G, current_node, level=0):
+            # print(viz_dict)
             if len(G.nodes()) == 0:
                 viz_dict[0] = [self.pretty_node_name(dbt_name)]
                 return
@@ -173,6 +264,7 @@ class ShowDependenciesTask:
                 if G.predecessors(current_node) == []:
                     return
                 for pred in G.predecessors(current_node):
+                    # print(list(G.predecessors(current_node)))
                     update_viz_dict(G, pred, level + 1)
             if self.direction == "downstream":
                 if G.successors(current_node) == []:
@@ -181,5 +273,13 @@ class ShowDependenciesTask:
                     update_viz_dict(G, pred, level + 1)
 
         update_viz_dict(G, dbt_name)
-        self.display_deps(viz_dict)
-        return viz_dict
+        pos = hierarchy_pos(
+            G, "source.predictive_modelling.kafka.flight_search_event_result_leg"
+        )
+        print("POS SPOSPSPS")
+        print(pos)
+        nx.draw(G, with_labels=True)
+        plt.draw()
+        plt.show()
+        # self.display_deps(viz_dict)
+        # return viz_dict

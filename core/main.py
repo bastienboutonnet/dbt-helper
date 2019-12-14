@@ -2,8 +2,8 @@ import argparse
 import sys
 import os
 
-import core.bootstrap as bootstrap_task
-import core.compare as compare_task
+# import core.bootstrap as bootstrap_task
+# import core.compare as compare_task
 import core.show_dependencies as show_dependencies_task
 import core.open as open_task
 import core.find as find_task
@@ -62,41 +62,41 @@ def parse_args(args):
 
     subs = p.add_subparsers(title="Available sub-commands", dest="command")
 
-    compare_sub = subs.add_parser(
-        "compare",
-        parents=[base_subparser],
-        help="Compare your dbt project specifications with what's in your database.",
-    )
-    compare_sub.set_defaults(cls=compare_task.CompareTask, which="compare")
+    # compare_sub = subs.add_parser(
+    #     "compare",
+    #     parents=[base_subparser],
+    #     help="Compare your dbt project specifications with what's in your database.",
+    # )
+    # compare_sub.set_defaults(cls=compare_task.CompareTask, which="compare")
 
-    bootstrap_sub = subs.add_parser(
-        "bootstrap",
-        parents=[base_subparser],
-        help="Bootstrap schema.yml files from database catalog",
-    )
-    bootstrap_sub.set_defaults(cls=bootstrap_task.BootstrapTask, which="bootsrap")
+    # bootstrap_sub = subs.add_parser(
+    #     "bootstrap",
+    #     parents=[base_subparser],
+    #     help="Bootstrap schema.yml files from database catalog",
+    # )
+    # bootstrap_sub.set_defaults(cls=bootstrap_task.BootstrapTask, which="bootsrap")
 
-    bootstrap_sub.add_argument(
-        "--schemas",
-        required=True,
-        nargs="+",
-        help="""
-        Required. Specify the schemas to inspect when bootstrapping
-        schema.yml files.
-        """,
-    )
-    bootstrap_sub.add_argument(
-        "--single-file",
-        action="store_true",
-        dest="single_file",
-        help="Store all of the schema information in a single schema.yml file",
-    )
-    bootstrap_sub.add_argument(
-        "--write-files",
-        action="store_true",
-        dest="write_files",
-        help="Create schema.yml files (will not over-write existing files).",
-    )
+    # bootstrap_sub.add_argument(
+    #     "--schemas",
+    #     required=True,
+    #     nargs="+",
+    #     help="""
+    #     Required. Specify the schemas to inspect when bootstrapping
+    #     schema.yml files.
+    #     """,
+    # )
+    # bootstrap_sub.add_argument(
+    #     "--single-file",
+    #     action="store_true",
+    #     dest="single_file",
+    #     help="Store all of the schema information in a single schema.yml file",
+    # )
+    # bootstrap_sub.add_argument(
+    #     "--write-files",
+    #     action="store_true",
+    #     dest="write_files",
+    #     help="Create schema.yml files (will not over-write existing files).",
+    # )
 
     upstream_depencies_sub = subs.add_parser(
         "show_upstream",
@@ -203,9 +203,9 @@ def handle(args):
     parsed = parse_args(args)
     results = None
 
-    if parsed.command == "bootstrap":
-        task = bootstrap_task.BootstrapTask(parsed)
-        results = task.run()
+    # if parsed.command == "bootstrap":
+    #     task = bootstrap_task.BootstrapTask(parsed)
+    #     results = task.run()
 
     if parsed.command == "compare":
         task = compare_task.CompareTask(parsed)
